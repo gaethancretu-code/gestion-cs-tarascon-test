@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inventaire synchronisé — VSAV 1 (test)</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f6f7fa;color:#20242a;font-family:system-ui,-apple-system,Segoe UI,sans-serif}header{background:linear-gradient(120deg,#a50913,#ed2227);color:#fff;padding:24px 18px}header h1{margin:0 0 6px;font-size:27px}header p{margin:0;color:#ffe5e7}.wrap{max-width:950px;margin:auto;padding:20px 15px}section.panel,.compartment{background:#fff;border:1px solid #e0e2e8;border-radius:15px;padding:17px;margin:0 0 18px}label{display:block;font-weight:650;margin:10px 0 5px}input{font:inherit;width:100%;padding:12px;border:1px solid #bcc3ce;border-radius:9px}button{font:inherit;cursor:pointer;border-radius:9px;border:1px solid #a50913;color:#a50913;background:#fff;padding:11px 14px;margin-top:12px}button.primary{background:#a50913;color:#fff}button:disabled{opacity:.5;cursor:not-allowed}.muted{color:#616a76;font-size:14px}.status{white-space:pre-wrap;padding:12px;border-radius:9px;background:#f0f2f6;margin:12px 0}.error{background:#ffeded;color:#91111b}.success{background:#e9f5ec;color:#146a35}.hidden{display:none!important}.compartment{padding:0;overflow:hidden}.compartment h2{background:#fff0f0;color:#95121a;margin:0;padding:16px;font-size:21px}.group{padding:0 17px 14px}.group h3{font-size:16px;margin:16px 0 8px;padding:9px 12px;background:#f1f3f7;border-left:5px solid #87909d;border-radius:7px}.group.red h3{background:#ffebeb;border-color:#c62828}.group.blue h3{background:#e7f0ff;border-color:#3587e8}.group.black h3{background:#e8e8e8;border-color:#222}.group.green h3{background:#e7f5e8;border-color:#268a46}.group.yellow h3{background:#fff7d9;border-color:#e2b526}.group.purple h3{background:#f2e8ff;border-color:#913bd2}.group.orange h3{background:#fff0df;border-color:#e69b47}.item{display:flex;justify-content:space-between;gap:12px;padding:10px 3px;border-bottom:1px solid #eceef2}.item:last-child{border-bottom:0}.qty{flex-shrink:0;font-weight:700;background:#f0f2f5;border-radius:8px;padding:4px 8px}.summary{margin:15px 0}.buttons{display:flex;gap:10px;flex-wrap:wrap}footer{text-align:center;padding:25px;color:#777;font-size:13px}
+</style>
+</head>
+<body>
+<header><div class="wrap"><h1>🚒 Inventaire synchronisé — VSAV 1</h1><p>Environnement de test · Consultation seule · Firebase Firestore</p></div></header>
+<main class="wrap">
+<section class="panel" id="loginPanel"><h2>Connexion administrateur</h2><p class="muted">Utilise ton compte Firebase habituel. Les identifiants ne sont pas enregistrés par cette page.</p><form id="loginForm"><label for="email">Adresse e-mail</label><input id="email" type="email" autocomplete="username" required><label for="password">Mot de passe</label><input id="password" type="password" autocomplete="current-password" required><button class="primary" id="loginButton" type="submit">Se connecter</button></form></section>
+<section class="panel hidden" id="inventoryPanel"><div class="buttons"><button id="logout" type="button">Se déconnecter</button></div><p class="muted" id="account"></p><label for="search">Rechercher un équipement ou un rangement</label><input id="search" type="search" placeholder="Ex. : BAVU, gants, brancard…"><p class="muted">Les quantités affichées sont celles de référence. Une quantité absente signifie « non renseignée ».</p><p class="summary" id="count"></p><div id="results"></div></section>
+<div class="status" id="status" role="status" aria-live="polite">En attente de connexion.</div>
+<footer>CS Tarascon-sur-Ariège · Test Firestore en lecture seule</footer>
+</main>
+<script type="module">
+import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
+import {getFirestore,doc,getDoc,collection,onSnapshot} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+const firebaseConfig={apiKey:'AIzaSyBcw1qC28Cz11nXKtVn97gmb4kRDF5J_0s',authDomain:'gestion-cs-tarascon.firebaseapp.com',projectId:'gestion-cs-tarascon',storageBucket:'gestion-cs-tarascon.firebasestorage.app',messagingSenderId:'863040765531',appId:'1:863040765531:web:5e31343e2c6141a3b3897e'};
+const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
+const $=id=>document.getElementById(id);let stopListening=null;let data=[];let session=0;
+function status(message,type=''){const e=$('status');e.textContent=message;e.className='status '+type;}
+function elem(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=String(text);return e;}
+function norm(s){return String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();}
+function order(a,b){return (Number(a.ordre)||0)-(Number(b.ordre)||0);}
+function render(){const q=norm($('search').value.trim());$('results').replaceChildren();let count=0,visible=0;
+ for(const c of [...data].sort(order)){const section=elem('section','compartment');let rows=0;
+ for(const g of [...(Array.isArray(c.groups)?c.groups:[])].sort(order)){const items=[...(Array.isArray(g.items)?g.items:[])].sort(order).filter(i=>!q||[i.nom,g.name,c.name].some(x=>norm(x).includes(q)));if(!items.length)continue;
+ const group=elem('div','group '+(['red','blue','black','green','yellow','purple','orange'].includes(g.color)?g.color:''));group.append(elem('h3','',g.name));
+ for(const i of items){const line=elem('div','item');line.append(elem('span','',i.nom));const quantity=elem('span','qty',i.quantiteReference===null||i.quantiteReference===undefined?'—':i.quantiteReference);quantity.title=i.quantiteReference==null?'Quantité non renseignée':'Quantité de référence';line.append(quantity);group.append(line);rows++;}section.append(group);}
+ if(rows){section.prepend(elem('h2','',c.name));$('results').append(section);visible++;count+=rows;}}
+ $('count').textContent=`${count} ligne(s) de matériel · ${visible} compartiment(s) affiché(s) sur ${data.length}`;
+ if(!count)$('results').append(elem('p','muted','Aucun équipement trouvé.'));
+}
+function reset(){session++;if(stopListening){stopListening();stopListening=null;}data=[];$('results').replaceChildren();$('inventoryPanel').classList.add('hidden');$('loginPanel').classList.remove('hidden');$('password').value='';}
+$('loginForm').addEventListener('submit',async e=>{e.preventDefault();$('loginButton').disabled=true;status('Connexion en cours…');try{await signInWithEmailAndPassword(auth,$('email').value.trim(),$('password').value);}catch(err){status('Connexion impossible : '+err.message,'error');}finally{$('loginButton').disabled=false;}});
+$('logout').addEventListener('click',async()=>{reset();try{await signOut(auth);status('Déconnecté.');}catch(err){status('Déconnexion impossible : '+err.message,'error');}});
+$('search').addEventListener('input',render);
+onAuthStateChanged(auth,async user=>{reset();if(!user){status('En attente de connexion.');return;}const current=session;status('Vérification des autorisations…');try{
+ const profile=await getDoc(doc(db,'users',user.uid));if(current!==session)return;
+ if(!profile.exists()||profile.data().active!==true||profile.data().role!=='admin'){status('Accès refusé : compte administrateur actif requis.','error');await signOut(auth);return;}
+ $('loginPanel').classList.add('hidden');$('inventoryPanel').classList.remove('hidden');$('account').textContent='Connecté : '+(user.email||'Administrateur');status('Connexion validée. Chargement des données Firestore…');
+ stopListening=onSnapshot(collection(db,'vehicules','vsav1','compartiments'),snapshot=>{if(current!==session)return;data=snapshot.docs.map(d=>({id:d.id,...d.data()}));render();status(`${data.length} compartiment(s) chargés depuis Firestore. Actualisation automatique active.`,'success');},err=>{if(current!==session)return;data=[];render();status('Lecture Firestore refusée ou impossible : '+err.message,'error');});
+ }catch(err){if(current===session)status('Vérification impossible : '+err.message,'error');}});
+</script>
+</body></html>
